@@ -8,7 +8,8 @@ const radialSegments = 32;
 const heightSegments = 1;
 
 
-const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+const material = new THREE.MeshStandardMaterial({ color: 0x00ff00, wireframe: true });
+const materialBlue = new THREE.MeshStandardMaterial({ color: 0x0000ff, wireframe: true });
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -17,123 +18,168 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 
-//Code for Three.js Objeckt
 
 
-    // Einlesen von Parametern für Flanschtyp 21
-    var d4 = 755; // Außendurchmesser des Flansches
-    var d3 = 670; // Lochkreisdurchmesser für Schrauben
-    var d5 = 42;  // Durchmesser der Schraubenbohrungen
-    var C = 57;   // Flanschdicke an der Basis
-    var H = 4 * C; // Gesamthöhe des Flansches
-    var N = 576;  // Ansatzdurchmesser (Durchmesser des mittleren Abschnitts)
-    var A = 508;  // Außendurchmesser des Flansches
-    var e1 = 14.2; // Wandstärke am oberen Abschnitt
-    var r0 = 20;  // Eckradius (Radius des Übergangs zwischen Basis und Ansatz)
+var e = 6.01 / 2; // Außendurchmesser / 2      6.01 bei M3
+var d = 3 / 2; // M3 Mutter mit 3mm Innengewinde (Radius)  
+var m = 2.4; // 2.4 bei M3 Mutter Dicke
+var h = 4; //4 gesammtdicke bei m3 mutter
+var s = h - m; // dicke des bereichs mit selbssicherung
 
-    var dicht_form = 2; // Dichtflächenform 
-    var nB = 8; // Anzahl der Bohrungen für Schrauben
-    var Flanschtyp = 5; // Definition des Flanschtyps
+let windungen = 0;  // 4.8 Windungen bei M3
 
-    var d1_dicht = 615; // Außendurchmesser der Dichtfläche
-    var f1 = 4;  // Höhe der Dichtleiste
+if (Math.abs(m - 2.4) < 0.001) {
+  windungen = m / 0.5;
+} else if (Math.abs(m - 3.2) < 0.001) {
+  windungen = m / 0.7;
+} else if (Math.abs(m - 4) < 0.001) {
+  windungen = m / 0.8;
+} else if (Math.abs(m - 5) < 0.001) {
+  windungen = m / 0.1;
+} else if (Math.abs(m - 5.5) < 0.001) {
+  windungen = m / 1;
+} else if (Math.abs(m - 6.6) < 0.001) {
+  windungen = m / 1.25;
+}
+else {
+  Console.log(m);
+}
 
-    // Berechnungen der Radien für die Geometrie
-    var ra = d4 * 0.5; // Außenradius des Flansches
-    var ri = (A * 0.5) - e1; // Innenradius, angepasst durch Wandstärke e1
 
-    // Erstellen der Geometrie für Flanschtyp 21
-    var typ_21_mesh = {};
-    if (Flanschtyp == 5) {
-        const type_21 = [];
 
-     type_21.push(new THREE.Vector2(ri, C));
-    type_21.push(new THREE.Vector2(0.5 * N, C));   //oben?
-     
-    type_21.push(new THREE.Vector2(0.5 * N - e1 -r0, H/2));
-
-    type_21.push(new THREE.Vector2(0.5 * N-e1-r0 , H)); //punkt außenkante oben
-    type_21.push(new THREE.Vector2(ri, H));
-    type_21.push(new THREE.Vector2(ri, C)); // unden ende
-
-        // Erstellen der Lathe-Geometrie durch Rotation des Querschnitts
-        const type_21_geom = new THREE.LatheGeometry(type_21, 256);
-        type_21_geom.rotateX(Math.PI / 2); // Rotation um die X-Achse zur richtigen Ausrichtung
-
-        // Mesh für Flanschtyp 21 erzeugen
-        typ_21_mesh = new THREE.Mesh(type_21_geom, material);
-        typ_21_mesh.name = id;
-        typ_21_mesh.updateMatrix();
+// Funktion, um ein Hexagon zu erstellen
+function createHexagonPath(radius) {
+  const hexagonShape = new THREE.Shape();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i; // 60 Grad pro Seite
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) {
+      hexagonShape.moveTo(x, y);
+    } else {
+      hexagonShape.lineTo(x, y);
     }
+  }
+  hexagonShape.closePath();
+  return hexagonShape;
+}
 
-    // Erstellen der Bohrungen für Schrauben
-    const arcShape = new THREE.Shape();
-    arcShape.absarc(0, 0, ra, 0, Math.PI * 2, false);
+// Erstelle das äußere Hexagon
+const shapeDeckel = createHexagonPath(e);
 
-    const holePath = new THREE.Path();
-    holePath.absarc(0, 0, ri, 0, Math.PI * 2, true);
-    arcShape.holes.push(holePath);
+// Füge das Innenloch hinzu
+shapeDeckel.holes.push(new THREE.Path().absarc(0, 0, d, 0, Math.PI * 2, true));
 
-    for (let i = 0; i < nB; i++) {
-        const angle = (i / nB) * 2 * Math.PI;
-        const x = (d3 * 0.5) * Math.cos(angle);
-        const y = (d3 * 0.5) * Math.sin(angle);
-        const bolthole = new THREE.Path();
-        bolthole.absarc(x, y, d5 * 0.5, 0, Math.PI * 2, true);
-        arcShape.holes.push(bolthole);
-    }
+// Extrude-Einstellungen für abgerundete Kanten
+var extrudeSettings = {
+  depth: m, // Tiefe der Mutter
+  steps: 90,
+  bevelEnabled: true, // Bevel aktivieren
+  bevelThickness: 0.2, // Dicke der Abrundung
+  bevelSize: 0.2, // Größe der Abrundung an den Ecken
+  bevelSegments: 20, // Glättung der Abrundung
+  curveSegments: 200, // Anzahl der Segmente für die Geometrie
+};
 
-    // Erstellen der Geometrie für den Flanschring mit Bohrungen
-    const extrudeSettings = {
-        depth: C,
-        bevelEnabled: false,
-        curveSegments: radialSegments,
-        steps: heightSegments
-    };
+// Erstelle die Mutter-Geometrie mit den Extrude-Einstellungen
+var mutterGeometry = new THREE.ExtrudeGeometry(shapeDeckel, extrudeSettings);
 
-    const flange_geometry = new THREE.ExtrudeGeometry(arcShape, extrudeSettings);
-    const flange_ring = new THREE.Mesh(flange_geometry, material);
-    flange_ring.name = id;
+// Mesh für die Mutter
+const mutterMesh = new THREE.Mesh(mutterGeometry, material);
 
-    // Erstellen der Dichtfläche, falls erforderlich
-    var sealing_ring = {};
-    if (dicht_form == 2) { // Dichtleiste
-        flange_ring.translateZ(f1);  // Anheben des Flanschrings, um Platz für die Dichtleiste zu schaffen
+// ########### Gewinde erstellen ###########
+// Benutzerdefinierte Helix-Kurve für das Innengewinde
+class HelixCurve extends THREE.Curve {
+  constructor() {
+    super();
+  }
 
-        const sealingShape = new THREE.Shape();
-        sealingShape.absarc(0, 0, 0.5 * d1_dicht + 0.5 * f1, 0, Math.PI * 2,0, false);
+  getPoint(t) {
+    const radius = d - d * 0.1; // Innenradius des Gewindes (leicht kleiner als das Loch)
+    const angle = 1.5 * Math.PI * windungen * t; // 10 Umdrehungen
+    const x = radius * Math.cos(angle);
+    const y = radius * Math.sin(angle);
+    const z = m * t; // Höhe entlang der Z-Achse
 
-        console.log('d1_dicht? als folrmel', 0.5 * d1_dicht + 0.5 * f1);
 
-        console.log('d1_dicht? als folrmel2', 0.5 * d3 - (0.5* d5));
 
-        const sealingHole = new THREE.Path();
-        sealingHole.absarc(0, 0, ri, 0, Math.PI * 2, true);
-        sealingShape.holes.push(sealingHole);
+    return new THREE.Vector3(-x, -y, z);
+  }
 
-        const sealingExtrudeSettings = {
-            depth: f1,
-            bevelEnabled: false,
-            curveSegments: radialSegments,
-            steps: heightSegments
-        };
+}
 
-        const sealing_geometry = new THREE.ExtrudeGeometry(sealingShape, sealingExtrudeSettings);
-        sealing_ring = new THREE.Mesh(sealing_geometry, material);
-        sealing_ring.name = id;
-    }
+// Erstelle die Helix-Kurve
+const helixCurve = new HelixCurve();
 
-    // Erstellen einer Gruppe für das gesamte Flanschobjekt und zurückgeben
-    const group = new THREE.Group();
-    group.add(typ_21_mesh);  //"trichter" nach oben
-    group.add(flange_ring);
-    if (dicht_form == 2) {
-        group.add(sealing_ring);
-    }
-    group.name = id;
+// Erstelle die Geometrie für das Gewinde
+const tubeGeometry = new THREE.TubeGeometry(helixCurve, 800, 0.2, 3, false);
+const tubeMesh = new THREE.Mesh(tubeGeometry, material);
+
+
+//###########  Dichtung erstellen
+
+
+// Shape für Dichtung
+const shapeReduOben = new THREE.Shape();
+shapeReduOben.absarc(0, 0, d * 1.3, 0, Math.PI * 2, false);
+
+//inneres Loch für die Dichtung
+const holePathInnen = new THREE.Path();
+holePathInnen.absarc(0, 0, d - d * 0.2, 0, Math.PI * 2, true);
+shapeReduOben.holes.push(holePathInnen);
+
+const extrudeDichtung = { depth: s / 4, bevelEnabled: false, curveSegments: 250 };
+const dichtungExtru = new THREE.ExtrudeGeometry(shapeReduOben, extrudeDichtung);
+const dichtungMesh = new THREE.Mesh(dichtungExtru, materialBlue);
+
+//position der Dichtung
+dichtungMesh.position.set(0, 0, d + s);
+
+
+//################ mantel
+
+
+// Erstellen des 2D-Profils
+var mantel = new THREE.Shape();
+
+mantel.moveTo(d * 1.5, m);   //bewege zu durchmesser dichtung Außen
+mantel.lineTo(d * 1.5, d + s + (s / 2));  //linie an dichtung entlang
+mantel.lineTo(d, d + s + (s / 2));    // linie an ca. hälfte der 
+mantel.lineTo(d, d + s + (s / 4));
+
+
+// Hol die Punkte 
+var pointShape = mantel.getPoints();
+
+var mantelGeom = new THREE.LatheGeometry(pointShape, 80, 0, Math.PI * 2);
+var mantelMesh = new THREE.Mesh(mantelGeom, material);
+
+
+
+mantelMesh.rotation.x = Math.PI * 0.5;
+
+
+// ########### Gruppe erstellen ###########
+const group = new THREE.Group();
+mutterMesh.name = id;
+group.name = id;
+tubeMesh.name = id;
+dichtungMesh.name = id;
+mantelMesh.name = id;
+
+
+
+group.add(mutterMesh); // Mutter
+group.add(tubeMesh);  // Gewinde
+group.add(dichtungMesh);
+group.add(mantelMesh);
+
 
 
 scene.add(group);
+
+//########### end code Three.js ##############
+
 
 const light = new THREE.PointLight(0xffffff, 1, 100);
 light.position.set(10, 10, 10);
