@@ -62,4 +62,4 @@ Dieses Projekt steht unter keiner speziellen Lizenz und ist für Lern- und Demon
 
 ## Autor
 
-- Erstellt von [Alexander Hoffmann] (Drotok)
+- Erstellt von Alexander Hoffmann (Drotok)
