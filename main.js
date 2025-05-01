@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 
 //  ID
 const id = "Flansch";
@@ -8,7 +10,7 @@ const radialSegments = 32;
 const heightSegments = 1;
 
 
-const material = new THREE.MeshStandardMaterial({ color: 0x00ff00, wireframe: true });
+const material = new THREE.MeshStandardMaterial({ color: 0x00ff00, wireframe: false });
 const materialBlue = new THREE.MeshStandardMaterial({ color: 0x0000ff, wireframe: true });
 
 const scene = new THREE.Scene();
@@ -18,179 +20,316 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 
-
-
-var e = 6.01 / 2; // Außendurchmesser / 2      6.01 bei M3
-var d = 3 / 2; // M3 Mutter mit 3mm Innengewinde (Radius)  
-var m = 2.4; // 2.4 bei M3 Mutter Dicke
-var h = 4; //4 gesammtdicke bei m3 mutter
-var s = h - m; // dicke des bereichs mit selbssicherung
-
-let windungen = 0;  // 4.8 Windungen bei M3
-
-if (Math.abs(m - 2.4) < 0.001) {
-  windungen = m / 0.5;
-} else if (Math.abs(m - 3.2) < 0.001) {
-  windungen = m / 0.7;
-} else if (Math.abs(m - 4) < 0.001) {
-  windungen = m / 0.8;
-} else if (Math.abs(m - 5) < 0.001) {
-  windungen = m / 0.1;
-} else if (Math.abs(m - 5.5) < 0.001) {
-  windungen = m / 1;
-} else if (Math.abs(m - 6.6) < 0.001) {
-  windungen = m / 1.25;
-}
-else {
-  Console.log(m);
-}
+//#################   Ab Hier Three.js Code adden  #############
 
 
 
-// Funktion, um ein Hexagon zu erstellen
-function createHexagonPath(radius) {
-  const hexagonShape = new THREE.Shape();
-  for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i; // 60 Grad pro Seite
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    if (i === 0) {
-      hexagonShape.moveTo(x, y);
-    } else {
-      hexagonShape.lineTo(x, y);
-    }
-  }
-  hexagonShape.closePath();
-  return hexagonShape;
-}
+const schraube = new THREE.Group();
 
-// Erstelle das äußere Hexagon
-const shapeDeckel = createHexagonPath(e);
+  
 
-// Füge das Innenloch hinzu
-shapeDeckel.holes.push(new THREE.Path().absarc(0, 0, d, 0, Math.PI * 2, true));
+var l = 40;
+var screw = "M12";
 
-// Extrude-Einstellungen für abgerundete Kanten
-var extrudeSettings = {
-  depth: m, // Tiefe der Mutter
-  steps: 90,
-  bevelEnabled: true, // Bevel aktivieren
-  bevelThickness: 0.2, // Dicke der Abrundung
-  bevelSize: 0.2, // Größe der Abrundung an den Ecken
-  bevelSegments: 20, // Glättung der Abrundung
-  curveSegments: 200, // Anzahl der Segmente für die Geometrie
+var positionY = 40;
+
+
+//###############  Gewinde
+// Definiert typische ISO-Gewindewerte
+const screwSizes = {
+
+M2:   { d_nenn: 2,   pitch: 0.4,  s: 4 },
+
+M3:   { d_nenn: 3,   pitch: 0.5,  s: 5.5 },
+
+M4:   { d_nenn: 4,   pitch: 0.7,  s: 7 },
+M5:   { d_nenn: 5,   pitch: 0.8,  s: 8 },
+M6:   { d_nenn: 6,   pitch: 1.0,  s: 10 },
+M7:   { d_nenn: 7,   pitch: 1.0,  s: 11 },
+M8:   { d_nenn: 8,   pitch: 1.25, s: 13 },
+M10:  { d_nenn: 10,  pitch: 1.5,  s: 17 },
+M12:  { d_nenn: 12,  pitch: 1.75, s: 19 },
+M14:  { d_nenn: 14,  pitch: 2.0,  s: 22 },
+M16:  { d_nenn: 16,  pitch: 2.0,  s: 24 },
+M18:  { d_nenn: 18,  pitch: 2.5,  s: 27 },
+M20:  { d_nenn: 20,  pitch: 2.5,  s: 30 },
+M22:  { d_nenn: 22,  pitch: 2.5,  s: 32 },
+M24:  { d_nenn: 24,  pitch: 3.0,  s: 36 }
 };
 
-// Erstelle die Mutter-Geometrie mit den Extrude-Einstellungen
-var mutterGeometry = new THREE.ExtrudeGeometry(shapeDeckel, extrudeSettings);
-
-// Mesh für die Mutter
-const mutterMesh = new THREE.Mesh(mutterGeometry, material);
-
-// ########### Gewinde erstellen ###########
-// Benutzerdefinierte Helix-Kurve für das Innengewinde
-class HelixCurve extends THREE.Curve {
-  constructor() {
-    super();
-  }
-
-  getPoint(t) {
-    const radius = d - d * 0.1; // Innenradius des Gewindes (leicht kleiner als das Loch)
-    const angle = 1.5 * Math.PI * windungen * t; // 10 Umdrehungen
-    const x = radius * Math.cos(angle);
-    const y = radius * Math.sin(angle);
-    const z = m * t; // Höhe entlang der Z-Achse
-
-
-
-    return new THREE.Vector3(-x, -y, z);
-  }
-
+// Berechnet die Kerndurchmesser
+function calculateCoreDiameter(d_nenn, pitch) {
+return d_nenn - (1.22687 * pitch);
 }
 
-// Erstelle die Helix-Kurve
-const helixCurve = new HelixCurve();
+// Hauptfunktion: Schraubenparameter berechnen
+function generateScrew(mSize, l) {
+const entry = screwSizes[mSize];
+if (!entry) throw new Error("Unbekannte Schraubengröße: " + mSize);
 
-// Erstelle die Geometrie für das Gewinde
-const tubeGeometry = new THREE.TubeGeometry(helixCurve, 800, 0.2, 3, false);
-const tubeMesh = new THREE.Mesh(tubeGeometry, material);
+const d_nenn = entry.d_nenn;
+const pitch = entry.pitch;
+let s = entry.s;
+const d_kern = calculateCoreDiameter(d_nenn, pitch);
 
+// Kopfhöhe  
+const kopfhoehe = 0.625 * d_nenn;
 
-//###########  Dichtung erstellen
+// Anzahl Windungen für das Gewinde
+const gewindeLaenge = l; 
+// const gewindeLaenge = l - (2*d_nenn);  //gewindelaenge bei teilgewinde
+const anzahlWindungen = Math.round(gewindeLaenge / pitch);  // Beil Teilgewinde das nutzen
 
-
-// Shape für Dichtung
-const shapeReduOben = new THREE.Shape();
-shapeReduOben.absarc(0, 0, d * 1.3, 0, Math.PI * 2, false);
-
-//inneres Loch für die Dichtung
-const holePathInnen = new THREE.Path();
-holePathInnen.absarc(0, 0, d - d * 0.2, 0, Math.PI * 2, true);
-shapeReduOben.holes.push(holePathInnen);
-
-const extrudeDichtung = { depth: s / 4, bevelEnabled: false, curveSegments: 250 };
-const dichtungExtru = new THREE.ExtrudeGeometry(shapeReduOben, extrudeDichtung);
-const dichtungMesh = new THREE.Mesh(dichtungExtru, materialBlue);
-
-//position der Dichtung
-dichtungMesh.position.set(0, 0, d + s);
-
-
-//################ mantel
-
-
-// Erstellen des 2D-Profils
-var mantel = new THREE.Shape();
-
-mantel.moveTo(d * 1.5, m);   //bewege zu durchmesser dichtung Außen
-mantel.lineTo(d * 1.5, d + s + (s / 2));  //linie an dichtung entlang
-mantel.lineTo(d, d + s + (s / 2));    // linie an ca. hälfte der 
-mantel.lineTo(d, d + s + (s / 4));
+ return {
+  d_nenn,
+  d_kern,
+  pitch,
+  s,
+  kopfhoehe,
+  gewindeLaenge,
+  anzahlWindungen
+};
+}
 
 
-// Hol die Punkte 
-var pointShape = mantel.getPoints();
-
-var mantelGeom = new THREE.LatheGeometry(pointShape, 80, 0, Math.PI * 2);
-var mantelMesh = new THREE.Mesh(mantelGeom, material);
+// Gewindeprofil (Trapez) erstellen
+function createGewindeShape(base = 0.02, top = meineSchraube.pitch, height = meineSchraube.pitch) {
+return [
+  new THREE.Vector2(0, -base / 2),
+  new THREE.Vector2(height, -top / 2),
+  new THREE.Vector2(height, top / 2),
+  new THREE.Vector2(0, base / 2),
+  new THREE.Vector2(0, -base / 2)
+]}
 
 
 
-mantelMesh.rotation.x = Math.PI * 0.5;
+// Helix-Kurvefür das gewinde    //bei Helix (pitch) ist der Abstand zwischen den windungen
+class HelixCurve extends THREE.Curve {
+constructor(radius, pitch, height) {
+  super();
+  this.radius = radius;
+  this.pitch = pitch;
+  this.height = height;
+}
+
+getPoint(t) {
+  const angle = 2 * Math.PI * (this.height / this.pitch) * t;
+  const x = this.radius * Math.cos(angle);
+  const y = this.radius * Math.sin(angle);
+  const z = this.height * t;
+  return new THREE.Vector3(x, y, z);
+}
+}
+
+// Gewinde extrudieren 
+function extrudeGewindeAlongHelix(shapePoints, radius, pitch, height, material)
+{
+const helix = new HelixCurve(radius, pitch, height);
+const segments = Math.floor(height / pitch * 32);
+const pathPoints = helix.getSpacedPoints(segments);
+
+const profilePoints = shapePoints.length;
+const positions = [];
+const indices = [];
+const up = new THREE.Vector3(0, 0, 1);
+
+for (let i = 0; i < pathPoints.length; i++) {
+  const curr = pathPoints[i];
+  const next = pathPoints[i + 1] || pathPoints[i];
+
+  const tangent = new THREE.Vector3().subVectors(next, curr).normalize();
+  const binormal = new THREE.Vector3().crossVectors(up, tangent).normalize();
+  const normal = new THREE.Vector3().crossVectors(tangent, binormal).normalize();
+
+  shapePoints.forEach(p => {
+    const vertex = new THREE.Vector3()
+      .addScaledVector(binormal, p.x)
+      .addScaledVector(normal, p.y)
+      .add(curr);
+    positions.push(vertex.x, vertex.y, vertex.z);
+  });
+}
+
+// Indices generieren
+for (let i = 0; i < pathPoints.length - 1; i++) {
+  const offset = i * profilePoints;
+  for (let j = 0; j < profilePoints - 1; j++) {
+    const a = offset + j;
+    const b = offset + j + 1;
+    const c = offset + j + 1 + profilePoints;
+    const d = offset + j + profilePoints;
+    indices.push(a, b, d);
+    indices.push(b, c, d);
+  }
+}
+
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+geometry.setIndex(indices);
+geometry.computeVertexNormals();
+
+return new THREE.Mesh(geometry, material);
+}
 
 
-// ########### Gruppe erstellen ###########
-const group = new THREE.Group();
-mutterMesh.name = id;
-group.name = id;
-tubeMesh.name = id;
-dichtungMesh.name = id;
-mantelMesh.name = id;
+//Parameter für die schraube mit denen eine Schraube erzeugt wird
+const meineSchraube = generateScrew(screw, l);
 
 
 
-group.add(mutterMesh); // Mutter
-group.add(tubeMesh);  // Gewinde
-group.add(dichtungMesh);
-group.add(mantelMesh);
+
+const trapezShape = createGewindeShape();    
+           
+const gewindeMesh = extrudeGewindeAlongHelix(trapezShape, meineSchraube.d_nenn / 1.9, meineSchraube.pitch, meineSchraube.gewindeLaenge, material);
+
+
+//####################### Schaft #######################
 
 
 
-scene.add(group);
+const geometry = new THREE.CylinderGeometry(meineSchraube.d_kern/2, meineSchraube.d_kern/2, l, 64);
+
+const shaft_mesh = new THREE.Mesh(geometry, material);
+
+
+
+//########## Hexagon Kopf ###########
+
+  // Funktion, um ein Hexagon zu erstellen
+  function createHexagonPath(radius) {
+      const hexagonShape = new THREE.Shape();
+      for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i; // 60 Grad pro Seite
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          if (i === 0) {
+              hexagonShape.moveTo(x, y);
+          } else {
+              hexagonShape.lineTo(x, y);
+          }
+      }
+      hexagonShape.closePath();
+      return hexagonShape;
+  }
+
+   //erstellen des "Basis" Kopf teil. 
+  function createHexagonBase(radius, height) {
+      const shape = createHexagonPath(radius);
+      const extrudeSettings = {
+          steps: 1,
+          depth: height,
+          bevelEnabled: false
+      };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    geometry.rotateX(Math.PI / 2);
+    geometry.translate(0, (l -meineSchraube.kopfhoehe/2 ), 0);
+    return geometry;
+  }
+
+  //erstellen des "Abgerundeten" kopf teil. oben
+  function createTopRounding(radius, height, segments = 6) {
+      const shape = new THREE.Shape();
+      for (let i = 0; i < segments; i++) {
+          const angle = (i / segments) * Math.PI * 2;
+          const r = radius * 0.88445; // etwas kleiner für sauberen Übergang
+          const x = Math.cos(angle) * r;
+          const y = Math.sin(angle) * r;
+          if (i === 0) shape.moveTo(x, y);
+          else shape.lineTo(x, y);
+      }
+      shape.closePath();
+
+      const extrudeSettings = {
+          steps: 5,
+          depth: height,
+          bevelEnabled: true,
+          bevelSegments: 1,
+          bevelSize: radius * 0.1,
+          bevelThickness: height
+      };
+
+      const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+      geometry.rotateX(Math.PI / 2);
+    geometry.translate(0, (l - meineSchraube.kopfhoehe / 2) * 1.0005, 0); // nach oben auf Kopf setzen
+      return geometry;
+  }
+
+
+//########## Hexagon Kopf Geometrie und Gruppe ###########
+const hexBase = createHexagonBase(meineSchraube.s / 2, meineSchraube.kopfhoehe);
+const hexTop = createTopRounding(meineSchraube.s / 2, meineSchraube.kopfhoehe / 12);
+
+const hexHead = new THREE.Group();
+
+const hexBaseMid = new THREE.Mesh(hexBase, material)
+const hexBaseTOP = new THREE.Mesh(hexTop, material)
+ 
+  hexHead.add(hexBaseMid);
+  hexHead.add(hexBaseTOP);
+
+
+
+//####################### Rotation / Position #########
+
+
+shaft_mesh.position.set(0,(l/2) -meineSchraube.kopfhoehe , 0);
+gewindeMesh.rotation.x = Math.PI * 1.5;
+gewindeMesh.position.set(0, - meineSchraube.kopfhoehe*0.9 , 0);
+
+
+//Meshes in gruppe adden
+schraube.add(gewindeMesh);
+schraube.add(shaft_mesh);
+
+//"hexHead" gruppe für den Kopbzw. beide Kopfteile
+hexHead.position.y = meineSchraube.kopfhoehe/2;
+schraube.add(hexHead);
+
+
+
+schraube.position.set(0, -l+meineSchraube.kopfhoehe +positionY, 0);
+
+
+hexBaseMid.name = id;
+hexBaseTOP.name = id;
+hexHead.name = id;
+gewindeMesh.name = id;
+shaft_mesh.name = id;
+schraube.name = id;
+
+
+ 
+
+
+
+
+scene.add(schraube);
 
 //########### end code Three.js ##############
 
 
-const light = new THREE.PointLight(0xffffff, 1, 100);
+const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
 light.position.set(10, 10, 10);
 scene.add(light);
 
-camera.position.z = 5;
+camera.position.set(0, 40, 450);
+
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0, 0, 0);
+controls.update();
+
+fitCameraToObject(camera, schraube, controls);
 
 function animate() {
-    requestAnimationFrame(animate);
-    renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
 }
+
 animate();
 
 const exporter = new GLTFExporter();
@@ -208,3 +347,59 @@ window.addEventListener('keydown', (event) => {
         }, { binary: false });
     }
 });
+
+
+
+function fitCameraToObject(camera, object, controls) {
+
+  const box = new THREE.Box3().setFromObject(object);
+
+  const size = box.getSize(new THREE.Vector3());
+
+  const center = box.getCenter(new THREE.Vector3());
+
+
+
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  const fov = camera.fov * (Math.PI / 180);
+
+  let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+
+
+
+  cameraZ *= 0.6; // Zoomfaktor 
+
+
+
+  const offsetX = -maxDim * 0.65; // leicht von der Seite
+
+  const offsetY = maxDim * 0.3; // leicht von oben
+
+
+
+  camera.position.set(center.x + offsetX, center.y + offsetY, center.z + cameraZ);
+
+
+
+  camera.near = maxDim / 100;
+
+  camera.far = maxDim * 10;
+
+  camera.updateProjectionMatrix();
+
+
+
+  camera.lookAt(center);
+
+
+
+  if (controls) {
+
+    controls.target.copy(center);
+
+    controls.update();
+
+  }
+
+}
